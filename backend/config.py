@@ -252,6 +252,9 @@ DELETE_EMPTY_TIMESTAMP = True
 # 是否重新分词, 用于解决没有语句没有空格
 WORD_SEGMENTATION = True
 
+# 默认字幕输出与视频同目录，这里可自定义
+OUT_PUT_PATH = 'D:\\videos\\subtitles'
+
 # --------------------- 请根据自己的实际情况改 end-----------------------------
 
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'

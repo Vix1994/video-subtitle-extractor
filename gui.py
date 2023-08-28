@@ -51,6 +51,7 @@ class SubtitleExtractorGUI:
         # 默认组件大小
         self.horizontal_slider_size = (120, 20)
         self.output_size = (100, 10)
+        self.list_size = (100, 5)
         self.progressbar_size = (60, 20)
         # 分辨率低于1080
         if self.screen_width // 2 < 960:
@@ -58,6 +59,7 @@ class SubtitleExtractorGUI:
             self.video_preview_height = self.video_preview_width * 9 // 16
             self.horizontal_slider_size = (60, 20)
             self.output_size = (58, 10)
+            self.list_size = (58, 5)
             self.progressbar_size = (28, 20)
         # 字幕提取器布局
         self.layout = None
@@ -82,6 +84,8 @@ class SubtitleExtractorGUI:
         self.ymax = None
         # 字幕提取器
         self.se = None
+        self.video_paths = []
+        self.video_list_dict = {}
 
     def run(self):
         # 创建布局
@@ -100,6 +104,10 @@ class SubtitleExtractorGUI:
             self._language_mode_event_handler(event)
             # 处理【运行】事件
             self._run_event_handler(event, values)
+            # 处理【清除】事件
+            self._clear_event_handler(event, values)
+            # 处理【删除选中】事件
+            self._list_remove_event_handler(event, values)
             # 如果关闭软件，退出
             if event == sg.WIN_CLOSED:
                 break
@@ -190,17 +198,43 @@ class SubtitleExtractorGUI:
                            pad=((10, 10), (20, 20)),
                            enable_events=True, font=self.font,
                            default_value=0, key='-X-SLIDER-W-'),
-             ]], pad=((15, 5), (0, 0)))
-             ],
+             ]], pad=((15, 5), (0, 0))),],
+            
+            [
+             sg.Text(self.interface_config['SubtitleExtractorGUI']['List'], key='-MSG-', font=self.font, justification='center'),
+             sg.Listbox(size=self.list_size, values=self.video_paths, font=self.font, expand_y=True, enable_events=True, key='-LIST-', select_mode='multiple'),
+             sg.Text('0', key='-LIST-COUNT-', font=self.font, justification='center'),
+             sg.Button(button_text=self.interface_config['SubtitleExtractorGUI']['ListRemove'], key='-LIST-REMOVE-',
+                       font=self.font, size=(20, 1)),
+            ],
 
             # 运行按钮 + 进度条
             [sg.Button(button_text=self.interface_config['SubtitleExtractorGUI']['Run'], key='-RUN-',
+                       font=self.font, size=(20, 1)),
+             sg.Button(button_text=self.interface_config['SubtitleExtractorGUI']['Clear'], key='-CLEAR-',
                        font=self.font, size=(20, 1)),
              sg.Button(button_text=self.interface_config['SubtitleExtractorGUI']['Setting'], key='-LANGUAGE-MODE-',
                        font=self.font, size=(20, 1)),
              sg.ProgressBar(100, orientation='h', size=self.progressbar_size, key='-PROG-', auto_size_text=True)
              ],
         ]
+        
+    def update_list(self):
+        """
+        更新List控件的列表
+        """
+        # 把视频加到列表
+        item_counter = 1
+        item_list = []
+        self.video_list_dict = {}
+        for sub_path in self.video_paths:
+            item_text = f"{item_counter}.{sub_path}"
+            item_list.append(item_text)
+            self.video_list_dict[item_text] = sub_path
+            item_counter += 1
+        
+        self.window['-LIST-'].update(item_list)
+        self.window['-LIST-COUNT-'].update(item_counter - 1)
 
     def _file_event_handler(self, event, values):
         """
@@ -209,8 +243,10 @@ class SubtitleExtractorGUI:
         2）获取视频信息，初始化进度条滑块范围
         """
         if event == '-FILE-':
-            self.video_paths = values['-FILE-'].split(';')
-            self.video_path = self.video_paths[0]
+            new_video_paths = values['-FILE-'].split(';');
+            self.video_paths.extend(new_video_paths)
+            self.video_paths = sorted(list(set(self.video_paths)))
+            self.video_path = new_video_paths[0]
             if self.video_path != '':
                 self.video_cap = cv2.VideoCapture(self.video_path)
             if self.video_cap is None:
@@ -218,8 +254,12 @@ class SubtitleExtractorGUI:
             if self.video_cap.isOpened():
                 ret, frame = self.video_cap.read()
                 if ret:
-                    for video in self.video_paths:
+                    for video in new_video_paths:
                         print(f"{self.interface_config['SubtitleExtractorGUI']['OpenVideoSuccess']}：{video}")
+                    
+                    # 把视频加到列表
+                    self.update_list()
+                    
                     # 获取视频的帧数
                     self.frame_count = self.video_cap.get(cv2.CAP_PROP_FRAME_COUNT)
                     # 获取视频的高度
@@ -286,6 +326,7 @@ class SubtitleExtractorGUI:
                 self.window['-X-SLIDER-W-'].update(disabled=True)
                 # 2) 禁止再次点击【运行】、【打开】和【识别语言】按钮
                 self.window['-RUN-'].update(disabled=True)
+                self.window['-CLEAR-'].update(disabled=True)
                 self.window['-FILE-'].update(disabled=True)
                 self.window['-FILE_BTN-'].update(disabled=True)
                 self.window['-LANGUAGE-MODE-'].update(disabled=True)
@@ -309,8 +350,15 @@ class SubtitleExtractorGUI:
                 def task():
                     while self.video_paths:
                         video_path = self.video_paths.pop()
-                        self.se = backend.main.SubtitleExtractor(video_path, subtitle_area)
-                        self.se.run()
+                        try:
+                            self.se = backend.main.SubtitleExtractor(video_path, subtitle_area)
+                            self.se.run()
+                            # self.window['-LIST-'].update(self.video_paths)
+                            self.update_list()
+                        except Exception as e:
+                            print(f'[{type(e)}] {e}')
+                            print(f"{video_path} 提取异常，跳过")
+                            
                 Thread(target=task, daemon=True).start()
                 self.video_cap.release()
                 self.video_cap = None
@@ -336,6 +384,37 @@ class SubtitleExtractorGUI:
                     x = int(values['-X-SLIDER-'])
                     w = int(values['-X-SLIDER-W-'])
                     self._update_preview(frame, (y, h, x, w))
+
+    def _clear_event_handler(self, event, values):
+        """
+        当点击清除按钮时，清除队列中的视频
+        """
+        if event == '-CLEAR-':
+            # 清空列表
+            self.video_paths = []
+            # self.window['-LIST-'].update(self.video_paths)
+            self.update_list()
+            if self.video_cap is not None:
+                self.video_cap.release()
+            self.video_cap = None
+            print(self.interface_config['SubtitleExtractorGUI']['ClearSuccess'])
+
+    def _list_remove_event_handler(self, event, values):
+        """
+        当点击删除选中时，清除选中的队列中的视频
+        """
+        if event == '-LIST-REMOVE-':
+            select_list = values['-LIST-']
+            
+            print(self.interface_config['SubtitleExtractorGUI']['DeleteConfirm'].replace('{0}', str(len(select_list))))
+            
+            for path_with_order in select_list:
+                sub_path = self.video_list_dict[path_with_order]
+                self.video_paths.remove(sub_path)
+            if len(self.video_paths) < 1:
+                self._clear_event_handler('-CLEAR-', values)
+            else:
+                self.update_list()
 
     def _update_preview(self, frame, y_h_x_w):
         y, h, x, w = y_h_x_w

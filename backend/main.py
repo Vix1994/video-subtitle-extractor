@@ -117,11 +117,33 @@ class SubtitleExtractor:
         self.subtitle_ocr_progress_queue = None
         # vsf运行状态
         self.vsf_running = False
+        self.srt_file_path = ''
+
+    def check_and_create_directory(self, directory_path):
+        if not os.path.exists(directory_path):  # 判断目录是否存在
+            os.makedirs(directory_path)  # 创建目录
+            print(f"目录 {directory_path} 创建成功")
+        else:
+            print(f"目录 {directory_path} 已经存在")
 
     def run(self):
         """
         运行整个提取视频的步骤
         """
+        
+        if len(config.OUT_PUT_PATH) == 0:
+            self.srt_file_path = os.path.join(os.path.splitext(self.video_path)[0] + '.srt')
+        else:
+            # 获取原始文件路径以及文件名和扩展名
+            video_dir = os.path.basename(os.path.dirname(self.video_path))
+            video_name = os.path.splitext(os.path.basename(self.video_path))[0]
+            new_srt_path = os.path.join(config.OUT_PUT_PATH, video_dir)
+            
+            self.check_and_create_directory(new_srt_path)
+            
+            # 构建新的文件路径和文件名
+            self.srt_file_path = os.path.join(new_srt_path, video_name + ".srt")
+        
         # 记录开始运行的时间
         start_time = time.time()
         self.lock.acquire()
@@ -130,6 +152,11 @@ class SubtitleExtractor:
         # 打印视频帧数与帧率
         print(f"{config.interface_config['Main']['FrameCount']}：{self.frame_count}"
               f"，{config.interface_config['Main']['FrameRate']}：{self.fps}")
+        
+        if self.frame_count < 1:
+            print(f"Frame Count Error SKIP")
+            return
+        
         # 打印视频帧提取开始提示
         print(config.interface_config['Main']['StartProcessFrame'])
         # 创建一个字幕OCR识别进程
@@ -186,7 +213,8 @@ class SubtitleExtractor:
             # 如果未使用vsf提取字幕，则使用常规字幕生成方法
             self.generate_subtitle_file()
         if config.WORD_SEGMENTATION:
-            reformat.execute(os.path.join(os.path.splitext(self.video_path)[0] + '.srt'), config.REC_CHAR_TYPE)
+            # reformat.execute(os.path.join(os.path.splitext(self.video_path)[0] + '.srt'), config.REC_CHAR_TYPE)
+            reformat.execute(self.srt_file_path, config.REC_CHAR_TYPE)
         print(config.interface_config['Main']['FinishGenerateSub'], f"{round(time.time() - start_time, 2)}s")
         self.update_progress(ocr=100, frame_extract=100)
         self.isFinished = True
@@ -525,7 +553,9 @@ class SubtitleExtractor:
         """
         if not self.use_vsf:
             subtitle_content = self._remove_duplicate_subtitle()
-            srt_filename = os.path.join(os.path.splitext(self.video_path)[0] + '.srt')
+            srt_filename = self.srt_file_path
+            
+            # srt_filename = os.path.join(os.path.splitext(self.video_path)[0] + '.srt')
             # 保存持续时间不足1秒的字幕行，用于后续处理
             post_process_subtitle = []
             with open(srt_filename, mode='w', encoding='utf-8') as f:
@@ -578,7 +608,9 @@ class SubtitleExtractor:
                 if not found and not config.DELETE_EMPTY_TIMESTAMP:
                     # 保留时间轴
                     final_subtitle.append((timestamp_list, ""))
-            srt_filename = os.path.join(os.path.splitext(self.video_path)[0] + '.srt')
+            # srt_filename = os.path.join(os.path.splitext(self.video_path)[0] + '.srt')
+            srt_filename = self.srt_file_path
+            
             with open(srt_filename, mode='w', encoding='utf-8') as f:
                 for i, subtitle_line in enumerate(final_subtitle):
                     f.write(f'{i + 1}\n')
